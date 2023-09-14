@@ -28,6 +28,8 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 				this.legalFiles = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
 				this.legalRanks = ['1', '2', '3', '4', '5', '6', '7', '8']
 
+				this.chessboard.colorControlMarkers = this.colorControlMarkers = {b: MARKER_TYPE.circlePrimary, y: MARKER_TYPE.frameDanger, d: MARKER_TYPE.circle, r: MARKER_TYPE.circleDanger}
+
 				this.chessboard.offBoardStartingPositions = [
 					{square: "a<", piece: "br", onBoardCoords: this.chessboard.view.indexToPoint(0), adjustment: {x: 0, y: 1.5,}, buttonGroup: this.props.belowBoardButtons, baseButton: this.extraSquareHorizontal},
 					{square: "b<", piece: "bn", onBoardCoords: this.chessboard.view.indexToPoint(1), adjustment: {x: 0, y: 1.5,}, buttonGroup: this.props.belowBoardButtons, baseButton: this.extraSquareHorizontal},
@@ -76,6 +78,22 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 				chessboard.getWinner = this.getWinner.bind(this)
 
 				this.registerExtensionPoint(EXTENSION_POINT.positionChanged, this.exensionPointPositionChanged.bind(this))
+
+				this.registerExtensionPoint(EXTENSION_POINT.moveInput, (event) => {
+				if (event.squareFrom && event.squareTo && (
+					event.squareTo == event.squareFrom ||
+					event.chessboard.offBoardStartingPositions.some((pos) => pos.square == event.squareFrom) ||
+					event.chessboard.getLegalMoves(event.squareFrom).includes(event.squareTo)
+				)) {
+						for (const i in event.chessboard.colorControlMarkers) {
+							event.chessboard.removeMarkers(event.chessboard.colorControlMarkers[i])
+						}
+
+						var hypothetical = event.chessboard.state.position.clone()
+						hypothetical.movePiece(event.squareFrom, event.squareTo)
+						event.chessboard.getWinner(hypothetical)
+					}
+				})
 			}
 
 			exensionPointPositionChanged() {
@@ -90,8 +108,8 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 
 			}
 
-			getLegalMoves(square) {
-				const piece = this.chessboard.getPiece(square)
+			getLegalMoves(square, position=this.chessboard.state.position) {
+				const piece = position.getPiece(square)
 				if (!piece) {
 					return []
 				}
@@ -108,7 +126,7 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 					while (keepGoing) {
 						newFile = String.fromCharCode(newFile.charCodeAt(0) + direction[0])
 						newRank = String.fromCharCode(newRank.charCodeAt(0) + direction[1])
-						if (this.legalFiles.includes(newFile) && this.legalRanks.includes(newRank) && !this.chessboard.getPiece(newFile + newRank)) {
+						if (this.legalFiles.includes(newFile) && this.legalRanks.includes(newRank) && !position.getPiece(newFile + newRank)) {
 							legalMoves.push(newFile + newRank)
 							if (this.legalDirections[pieceType].onlyOne) {
 								keepGoing = false
@@ -121,12 +139,12 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 				return legalMoves
 			}
 
-			getWinner() {
+			getWinner(position=this.chessboard.state.position) {
 				var score = {}
 				for (const rank of this.legalRanks) {
 					for (const file of this.legalFiles) {
-						const controlledSquares = this.getLegalMoves(file + rank)
-						const piece = this.chessboard.getPiece(file + rank)
+						const controlledSquares = this.getLegalMoves(file + rank, position)
+						const piece = position.getPiece(file + rank)
 						if (piece) {
 							const color = piece.slice(-2)[0]
 							for (const square of controlledSquares) {
@@ -139,14 +157,12 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 					}
 				}
 
-				const colorMarkers = {b: MARKER_TYPE.circlePrimary, y: MARKER_TYPE.dot, d: MARKER_TYPE.circle, r: MARKER_TYPE.circleDanger}
-
 				var finalScore = {'b': 0, 'y': 0, 'd': 0, 'r': 0}
 				for (const square in score) {
 					const winner = this.getMaxKey(score[square])
-					finalScore[winner] += 1
-					if (winner in colorMarkers) {
-						this.chessboard.addMarker(colorMarkers[winner], square)
+					if (winner in this.colorControlMarkers) {
+						finalScore[winner] += 1
+						this.chessboard.addMarker(this.colorControlMarkers[winner], square)
 					}
 				}
 
@@ -222,9 +238,8 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 		var mostRecentFreeSquare
 
 		function inputHandler(event) {
-			event.chessboard.removeMarkers(MARKER_TYPE.frame)
 			event.chessboard.removeMarkers(MARKER_TYPE.dot)
-			switch (event.type) {
+			switch (event.type) {	
 				case INPUT_EVENT_TYPE.moveInputStarted:
 					const moves = event.chessboard.getLegalMoves(event.squareFrom)
 					for (const move of moves) { // draw dots on possible squares
