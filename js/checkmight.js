@@ -28,7 +28,16 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 				this.legalFiles = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
 				this.legalRanks = ['1', '2', '3', '4', '5', '6', '7', '8']
 
-				this.chessboard.colorControlMarkers = this.colorControlMarkers = {b: MARKER_TYPE.circlePrimary, y: MARKER_TYPE.frameDanger, d: MARKER_TYPE.circle, r: MARKER_TYPE.circleDanger}
+				this.validStartingFilesAndRanksByPlayer = {
+					'b': [['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'], ['1', '2', '3', '4']],
+					'y': [['a', 'b', 'c', 'd'], ['1', '2', '3', '4', '5', '6', '7', '8']],
+					'd': [['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'], ['5', '6', '7', '8']],
+					'r': [['e', 'f', 'g', 'h'], ['1', '2', '3', '4', '5', '6', '7', '8']],
+				}
+				this.chessboard.validStartingSquaresByPlayer = this.getValidStartingSquaresByPlayer()
+
+				const yellowCircle = {class: "marker-yellow", slice: "markerCircle"}
+				this.chessboard.colorControlMarkers = this.colorControlMarkers = {b: MARKER_TYPE.circlePrimary, y: yellowCircle, d: MARKER_TYPE.circle, r: MARKER_TYPE.circleDanger}
 
 				this.chessboard.offBoardStartingPositions = [
 					{square: "a<", piece: "br", onBoardCoords: this.chessboard.view.indexToPoint(0), adjustment: {x: 0, y: 1.5,}, buttonGroup: this.props.belowBoardButtons, baseButton: this.extraSquareHorizontal},
@@ -75,24 +84,13 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 				}.bind(this)
 
 				chessboard.getLegalMoves = this.getLegalMoves.bind(this)
+				chessboard.getSquareControl = this.getSquareControl.bind(this)
 				chessboard.getWinner = this.getWinner.bind(this)
 
 				this.registerExtensionPoint(EXTENSION_POINT.positionChanged, this.exensionPointPositionChanged.bind(this))
 
 				this.registerExtensionPoint(EXTENSION_POINT.moveInput, (event) => {
-				if (event.squareFrom && event.squareTo && (
-					event.squareTo == event.squareFrom ||
-					event.chessboard.offBoardStartingPositions.some((pos) => pos.square == event.squareFrom) ||
-					event.chessboard.getLegalMoves(event.squareFrom).includes(event.squareTo)
-				)) {
-						for (const i in event.chessboard.colorControlMarkers) {
-							event.chessboard.removeMarkers(event.chessboard.colorControlMarkers[i])
-						}
-
-						var hypothetical = event.chessboard.state.position.clone()
-						hypothetical.movePiece(event.squareFrom, event.squareTo)
-						event.chessboard.getWinner(hypothetical)
-					}
+					this.drawControlMarkers(event)
 				})
 			}
 
@@ -102,10 +100,35 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 					this.chessboard.view.redrawPieces()
 				}
 				if (!this.chessboard.offBoardStartingPositions.some((pos) => this.chessboard.getPiece(pos.square) != undefined)) {
-					this.chessboard.getWinner()
+					this.chessboard.getSquareControl()
 					this.chessboard.disableMoveInput()
 				}
+			}
 
+			getValidStartingSquaresByPlayer(player=null) {
+				if (player) {
+					var validStartingSquaresByPlayer = []
+
+					for (const file of this.validStartingFilesAndRanksByPlayer[player][0]) {
+						for (const rank of this.validStartingFilesAndRanksByPlayer[player][1]) {
+							validStartingSquaresByPlayer.push(file + rank)
+						}
+					}
+					return validStartingSquaresByPlayer
+
+				} else {
+					var validStartingSquaresByPlayer = {}
+
+					for (player in this.validStartingFilesAndRanksByPlayer) {
+						validStartingSquaresByPlayer[player] = []
+						for (const file of this.validStartingFilesAndRanksByPlayer[player][0]) {
+							for (const rank of this.validStartingFilesAndRanksByPlayer[player][1]) {
+								validStartingSquaresByPlayer[player].push(file + rank)
+							}
+						}
+					}
+					return validStartingSquaresByPlayer
+				}
 			}
 
 			getLegalMoves(square, position=this.chessboard.state.position) {
@@ -139,36 +162,84 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 				return legalMoves
 			}
 
-			getWinner(position=this.chessboard.state.position) {
-				var score = {}
+			drawControlMarkers(event) {
+				if (event.type === INPUT_EVENT_TYPE.moveInputStarted &&
+					!event.moveInputCallbackResult) {
+					return
+				}
+
+				if (event.type === INPUT_EVENT_TYPE.moveInputFinished) {
+					event.chessboard.state.squareControl = event.chessboard.getSquareControl()
+					event.chessboard.getWinner()
+				}
+
+				if (event.type === INPUT_EVENT_TYPE.moveInputStarted ||
+					event.type === INPUT_EVENT_TYPE.movingOverSquare) {
+
+					if (event.squareTo && event.chessboard.getMarkers(MARKER_TYPE.dot, event.squareTo).length) {
+						var hypothetical = event.chessboard.state.position.clone()
+						hypothetical.movePiece(event.squareFrom, event.squareTo)
+
+						// clear existing control markers
+						for (const i in event.chessboard.colorControlMarkers) {
+							event.chessboard.removeMarkers(event.chessboard.colorControlMarkers[i])
+						}
+
+						event.chessboard.getWinner(event.chessboard.getSquareControl(hypothetical))
+						event.chessboard.state.hypothetical = true
+					}  else {
+						if (event.chessboard.state.hypothetical == true) {
+							// clear existing control markers
+							for (const i in event.chessboard.colorControlMarkers) {
+								event.chessboard.removeMarkers(event.chessboard.colorControlMarkers[i])
+							}
+							event.chessboard.getWinner()
+							event.chessboard.state.hypothetical = false
+						}
+					}
+				}
+			}
+
+			getSquareControl(position=this.chessboard.state.position) {
+				var squareControl = {}
 				for (const rank of this.legalRanks) {
 					for (const file of this.legalFiles) {
 						const controlledSquares = this.getLegalMoves(file + rank, position)
 						const piece = position.getPiece(file + rank)
 						if (piece) {
 							const color = piece.slice(-2)[0]
-							for (const square of controlledSquares) {
-								if (!square in score || !score[square]) {
-									score[square] = {'b': 0, 'y': 0, 'd': 0, 'r': 0}
+							for (const square of controlledSquares.concat(file + rank)) {
+								if (!square in squareControl || !squareControl[square]) {
+									squareControl[square] = {'b': 0, 'y': 0, 'd': 0, 'r': 0}
 								}
-								score[square][color] += 1
+								squareControl[square][color] += 1
 							}
 						}
 					}
 				}
 
+				return squareControl
+			}
+
+			getWinner(squareControl=this.chessboard.state.squareControl) {
 				var finalScore = {'b': 0, 'y': 0, 'd': 0, 'r': 0}
-				for (const square in score) {
-					const winner = this.getMaxKey(score[square])
-					if (winner in this.colorControlMarkers) {
+
+				for (const square in squareControl) {
+					const winner = this.getMaxKey(squareControl[square])
+
+					for (const i in this.chessboard.colorControlMarkers) {
+						this.chessboard.removeMarkers(this.colorControlMarkers[i], square)
+					}
+
+					if (winner in this.colorControlMarkers && this.chessboard.getPiece(square) == null) {
 						finalScore[winner] += 1
 						this.chessboard.addMarker(this.colorControlMarkers[winner], square)
 					}
 				}
 
-				console.log("Winner: " + this.getMaxKey(finalScore))
-				console.log(finalScore)
-				console.log(score)
+				//console.log("Winner: " + this.getMaxKey(finalScore))
+				//console.log(finalScore)
+				return this.getMaxKey(finalScore)
 			}
 
 			getMaxKey(obj) {
@@ -219,7 +290,7 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 					},
 				},
 				extensions: [
-					{class: Markers, props: {sprite: "https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/assets/extensions/markers/markers.svg"}},
+					{class: Markers, props: {sprite: "https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/assets/extensions/markers/markers.svg", autoMarkers: false}},
 					{class: redrawPiecesOffBoard, props: {
 						aboveBoardButtons: $('#aboveBoardButtons'),
 						leftBoardButtons: $('#leftBoardButtons'),
@@ -230,6 +301,14 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 			}
 		)
 
+		$('#mainBoard').find('.board').children('.square').each(function(i, square) {
+			$(square).attr("data-bs-container", "body")
+			$(square).attr("data-bs-toggle", "popover")
+			$(square).attr("data-bs-placement", "right")
+			$(square).attr("data-bs-content", "Vivamus sagittis lacus vel augue laoreet rutrum faucibus.")
+			$(square).popover({trigger: 'hover'})
+		})
+
 		mainBoard.enableMoveInput(inputHandler, 'w')
 		const playerOrder = ['b', 'y', 'd', 'r']
 		var currentPlayerIndex = 0
@@ -238,6 +317,12 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 		var mostRecentFreeSquare
 
 		function inputHandler(event) {
+
+			$('#mainBoard').find('.board').children('.square').each(function(i, square) {
+				$(square).popover('disable')
+			})
+
+
 			event.chessboard.removeMarkers(MARKER_TYPE.dot)
 			switch (event.type) {	
 				case INPUT_EVENT_TYPE.moveInputStarted:
@@ -247,18 +332,37 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 							event.chessboard.addMarker(MARKER_TYPE.dot, move)
 						}
 					}
+
 					if (mostRecentFreeSquare != undefined) {
 						event.chessboard.addMarker(MARKER_TYPE.dot, mostRecentFreeSquare)
 					}
+
+					if (!moves.length && mostRecentFreeSquare == undefined) {
+						for (const square of event.chessboard.validStartingSquaresByPlayer[playerOrder[currentPlayerIndex]]) {
+							if (!event.chessboard.getPiece(square)) {
+								event.chessboard.addMarker(MARKER_TYPE.dot, square)
+							}
+						}
+					}
+
 					return true
 				case INPUT_EVENT_TYPE.validateMoveInput:
 
 					if (event.chessboard.offBoardStartingPositions.some((pos) => pos.square == event.squareFrom)) {
-						if (![undefined, event.squareTo].includes(mostRecentFreeSquare)) {
+						if (event.chessboard.getPiece(event.squareTo) != null) {
 							return false
-						} else {
-							mostRecentFreeSquare = undefined
 						}
+
+						if (mostRecentFreeSquare) {
+							if (event.squareTo != mostRecentFreeSquare) {
+								return false
+							}
+						} else {
+							if (!event.chessboard.validStartingSquaresByPlayer[playerOrder[currentPlayerIndex]].includes(event.squareTo)) {
+								return false
+							}
+						}
+						mostRecentFreeSquare = undefined
 
 						currentPlayerIndex = (currentPlayerIndex + 1) % playerOrder.length
 						if (currentPlayerIndex == 0) {
@@ -297,8 +401,13 @@ import { Svg } from 'https://cdn.jsdelivr.net/npm/cm-chessboard@7.9.1/src/lib/Sv
 					return true
 
 				case INPUT_EVENT_TYPE.moveInputCanceled:
-					console.log(`moveInputCanceled`)
+					console.log('Move input canceled')
 			}
+		
+			$('#mainBoard').find('.board').children('.square').each(function(i, square) {
+				$(square).popover('enable')
+			})
+
 		}
 	})
 

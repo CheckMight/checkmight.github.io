@@ -86,7 +86,13 @@ h6,
 }
 
 .cm-chessboard {
-  overflow: visible;
+	overflow: visible;
+}
+
+.cm-chessboard .markers .marker.marker-yellow {
+    stroke: #fcba03;
+    stroke-width: 3px;
+    opacity: 0.4; 
 }
 
 
